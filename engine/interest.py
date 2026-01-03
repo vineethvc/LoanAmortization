@@ -1,3 +1,5 @@
+import math
+
 def monthly_interest(
     outstanding,
     emi,
@@ -23,5 +25,5 @@ def monthly_interest(
 
             interest += principal * r
 
-    return interest
+    return math.ceil(interest)
 
