@@ -182,7 +182,7 @@ df = compute_schedule(
 )
 
 st.subheader("Amortization Schedule")
-st.dataframe(df, use_container_width=True)
+st.dataframe(df, width='stretch')
 
 st.subheader("Outstanding Balance Over Time")
 st.line_chart(df.set_index("Month")["Outstanding"])
