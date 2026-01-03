@@ -6,6 +6,7 @@ from engine.schedule import compute_schedule
 
 from auth import check_password
 from storage import init_db, save_scenario, load_scenario, list_scenarios
+import altair as alt
 
 # --------------------------------------------------
 # Setup
@@ -184,17 +185,59 @@ df = compute_schedule(
 st.subheader("Amortization Schedule")
 st.dataframe(df, width='stretch')
 
-st.subheader("Outstanding Balance Over Time")
-st.line_chart(df.set_index("Month")["Outstanding"])
-
-
 baseline_df = compute_schedule(
     loan=loan,
     rate_changes=sorted(st.session_state.rates, key=lambda r: r.effective_date),
-    emi_changes=sorted(st.session_state.emis, key=lambda e: e.effective_date),
+    emi_changes=generate_stepup_emis(start_date=start_date,
+        base_emi=51_000,
+        years=10,step=0),#sorted(st.session_state.emis, key=lambda e: e.effective_date),
     prepayments=[],  # no prepayments
 )
 
+
+comparison_df = (
+    baseline_df[["Month", "Outstanding"]]
+    .rename(columns={"Outstanding": "Baseline Outstanding"})
+    .merge(
+        df[["Month", "Outstanding"]]
+        .rename(columns={"Outstanding": "Scenario Outstanding"}),
+        on="Month",
+        how="outer"
+    )
+    .set_index("Month")
+)
+
+
+comparison_df["Scenario Outstanding"] = (
+    comparison_df["Scenario Outstanding"]
+    .fillna(0)
+)
+
+chart_df = comparison_df.reset_index().melt(
+    id_vars="Month",
+    value_vars=["Baseline Outstanding", "Scenario Outstanding"],
+    var_name="Type",
+    value_name="Outstanding"
+)
+
+chart = alt.Chart(chart_df).mark_line(strokeWidth=3).encode(
+    x="Month:T",
+    y="Outstanding:Q",
+    color=alt.Color(
+        "Type:N",
+        scale=alt.Scale(
+            domain=["Baseline Outstanding", "Scenario Outstanding"],
+            range=["#d62728", "#2ca02c"]  # red, green
+        ),
+        legend=alt.Legend(title="Schedule")
+    )
+).properties(
+    width="container",
+    height=400,
+    title="Outstanding Balance: Baseline vs Scenario"
+)
+
+st.altair_chart(chart, width='stretch')
 
 def impact_metrics(baseline_df, scenario_df):
     baseline_interest = baseline_df["Interest"].sum()
