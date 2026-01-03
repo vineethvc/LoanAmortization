@@ -186,3 +186,54 @@ st.dataframe(df, use_container_width=True)
 
 st.subheader("Outstanding Balance Over Time")
 st.line_chart(df.set_index("Month")["Outstanding"])
+
+
+baseline_df = compute_schedule(
+    loan=loan,
+    rate_changes=sorted(st.session_state.rates, key=lambda r: r.effective_date),
+    emi_changes=sorted(st.session_state.emis, key=lambda e: e.effective_date),
+    prepayments=[],  # no prepayments
+)
+
+
+def impact_metrics(baseline_df, scenario_df):
+    baseline_interest = baseline_df["Interest"].sum()
+    scenario_interest = scenario_df["Interest"].sum()
+
+    interest_saved = baseline_interest - scenario_interest
+
+    baseline_months = len(baseline_df)
+    scenario_months = len(scenario_df)
+
+    months_saved = baseline_months - scenario_months
+
+    return {
+        "interest_saved": round(interest_saved, 2),
+        "months_saved": months_saved,
+        "baseline_months": baseline_months,
+        "scenario_months": scenario_months,
+    }
+
+
+impact = impact_metrics(baseline_df, df)
+
+st.subheader("Impact Analysis")
+
+c1, c2, c3 = st.columns(3)
+
+c1.metric(
+    "Interest Saved",
+    f"₹{impact['interest_saved']:,.0f}"
+)
+
+c2.metric(
+    "Loan Tenure Reduced",
+    f"{impact['months_saved']} months"
+)
+
+c3.metric(
+    "Scenario Tenure",
+    f"{impact['scenario_months']} months"
+)
+
+
