@@ -1,8 +1,11 @@
 import streamlit as st
+import os
 import hashlib
+from dotenv import load_dotenv
 
-# store hash, not password
-PASSWORD_HASH = hashlib.sha256("saveloan123".encode()).hexdigest()
+load_dotenv()  # loads .env into environment
+
+PASSWORD_HASH = os.getenv("APP_PASSWORD_HASH")
 
 def check_password():
     if "auth" not in st.session_state:
