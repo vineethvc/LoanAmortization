@@ -1,0 +1,188 @@
+import streamlit as st
+from datetime import date
+
+from engine.models import Loan, RateChange, EMIChange, Prepayment
+from engine.schedule import compute_schedule
+
+from auth import check_password
+from storage import init_db, save_scenario, load_scenario, list_scenarios
+
+# --------------------------------------------------
+# Setup
+# --------------------------------------------------
+
+st.set_page_config(layout="wide")
+st.title("Loan Amortization Simulator")
+
+init_db()
+
+# --------------------------------------------------
+# Helpers
+# --------------------------------------------------
+
+def generate_stepup_emis(start_date, base_emi, years=10, step=0.10):
+    emis = []
+    emi = base_emi
+    for y in range(years):
+        eff = date(start_date.year + y, 1, 1)
+        emis.append(EMIChange(eff, round(emi, -3)))
+        emi *= (1 + step)
+    return emis
+
+# --------------------------------------------------
+# Session state
+# --------------------------------------------------
+
+if "rates" not in st.session_state:
+    st.session_state.rates = []
+
+if "emis" not in st.session_state:
+    st.session_state.emis = []
+
+if "prepays" not in st.session_state:
+    st.session_state.prepays = []
+
+# --------------------------------------------------
+# Loan basics
+# --------------------------------------------------
+
+principal = st.number_input("Principal", value=6_240_344, step=100_000)
+start_date = st.date_input("Loan Start Date", value=date(2025, 7, 1))
+emi_day = 5
+
+loan = Loan(principal=principal, start_date=start_date, emi_day=emi_day)
+
+# --------------------------------------------------
+# Seed defaults ONCE
+# --------------------------------------------------
+
+if not st.session_state.rates:
+    st.session_state.rates.append(RateChange(start_date, 7.6))
+
+if not st.session_state.emis:
+    st.session_state.emis = generate_stepup_emis(
+        start_date=start_date,
+        base_emi=51_000,
+        years=10
+    )
+
+# --------------------------------------------------
+# Interest rate editor
+# --------------------------------------------------
+
+st.subheader("Interest Rate Changes")
+
+with st.form("add_rate"):
+    rate = st.number_input("Rate (%)", step=0.1, format="%.2f")
+    eff_date = st.date_input("Effective From", value=start_date)
+    add_rate = st.form_submit_button("Add Rate")
+
+if add_rate:
+    st.session_state.rates.append(RateChange(eff_date, rate))
+    st.rerun()
+
+for i, r in enumerate(sorted(st.session_state.rates, key=lambda x: x.effective_date)):
+    c1, c2, c3 = st.columns([3, 3, 1])
+    c1.write(r.effective_date)
+    c2.write(f"{r.rate:.2f}%")
+    if c3.button("❌", key=f"del_rate_{i}") and len(st.session_state.rates) > 1:
+        st.session_state.rates.pop(i)
+        st.rerun()
+
+# --------------------------------------------------
+# EMI editor (manual overrides)
+# --------------------------------------------------
+
+st.subheader("EMI Changes (Overrides Allowed)")
+
+with st.form("add_emi"):
+    emi_amt = st.number_input("EMI Amount", step=100)
+    eff_date = st.date_input("Effective From", value=start_date)
+    add_emi = st.form_submit_button("Add EMI Change")
+
+if add_emi:
+    st.session_state.emis.append(EMIChange(eff_date, emi_amt))
+    st.rerun()
+
+for i, e in enumerate(sorted(st.session_state.emis, key=lambda x: x.effective_date)):
+    c1, c2, c3 = st.columns([3, 3, 1])
+    c1.write(e.effective_date)
+    c2.write(f"{e.amount:,.0f}")
+    if c3.button("❌", key=f"del_emi_{i}") and len(st.session_state.emis) > 1:
+        st.session_state.emis.pop(i)
+        st.rerun()
+
+# --------------------------------------------------
+# Prepayments
+# --------------------------------------------------
+
+st.subheader("Prepayments")
+
+with st.form("add_prepay"):
+    p_date = st.date_input("Prepayment Date")
+    p_amt = st.number_input("Amount", min_value=0, step=10_000)
+    add_prepay = st.form_submit_button("Add Prepayment")
+
+if add_prepay and p_amt > 0:
+    st.session_state.prepays.append(Prepayment(p_date, p_amt))
+    st.rerun()
+
+for i, p in enumerate(sorted(st.session_state.prepays, key=lambda x: x.date)):
+    c1, c2, c3 = st.columns([3, 3, 1])
+    c1.write(p.date)
+    c2.write(f"{p.amount:,.0f}")
+    if c3.button("❌", key=f"del_prepay_{i}"):
+        st.session_state.prepays.pop(i)
+        st.rerun()
+
+# --------------------------------------------------
+# Persistence (password-gated)
+# --------------------------------------------------
+
+st.subheader("Persistence")
+
+can_edit = check_password()
+scenario_name = st.text_input("Scenario name")
+
+col1, col2 = st.columns(2)
+
+if col1.button("💾 Save"):
+    if not can_edit:
+        st.warning("Enter password to save.")
+    elif scenario_name:
+        payload = {
+            "principal": principal,
+            "start_date": start_date.isoformat(),
+            "rates": [{"date": r.effective_date.isoformat(), "rate": r.rate} for r in st.session_state.rates],
+            "emis": [{"date": e.effective_date.isoformat(), "amount": e.amount} for e in st.session_state.emis],
+            "prepays": [{"date": p.date.isoformat(), "amount": p.amount} for p in st.session_state.prepays],
+        }
+        save_scenario(scenario_name, payload)
+        st.success("Saved")
+
+available = list_scenarios()
+selected = col2.selectbox("Load scenario", [""] + available)
+
+if selected:
+    data = load_scenario(selected)
+    st.session_state.rates = [RateChange(date.fromisoformat(r["date"]), r["rate"]) for r in data["rates"]]
+    st.session_state.emis = [EMIChange(date.fromisoformat(e["date"]), e["amount"]) for e in data["emis"]]
+    st.session_state.prepays = [Prepayment(date.fromisoformat(p["date"]), p["amount"]) for p in data["prepays"]]
+    st.rerun()
+
+# --------------------------------------------------
+# Compute & output
+# --------------------------------------------------
+
+df = compute_schedule(
+    loan=loan,
+    rate_changes=sorted(st.session_state.rates, key=lambda r: r.effective_date),
+    emi_changes=sorted(st.session_state.emis, key=lambda e: e.effective_date),
+    prepayments=sorted(st.session_state.prepays, key=lambda p: p.date),
+)
+
+st.subheader("Amortization Schedule")
+st.dataframe(df, use_container_width=True)
+
+st.subheader("Outstanding Balance Over Time")
+st.line_chart(df.set_index("Month")["Outstanding"])
