@@ -3,8 +3,8 @@ from datetime import date
 
 from engine.models import Loan, RateChange, EMIChange, Prepayment
 from engine.schedule import compute_schedule
-
-from auth import check_password
+#
+# from auth import check_password
 from storage import init_db, save_scenario, load_scenario, list_scenarios
 import altair as alt
 
