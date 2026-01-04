@@ -5,7 +5,9 @@ from dotenv import load_dotenv
 
 load_dotenv()  # loads .env into environment
 
-PASSWORD_HASH = os.getenv("APP_PASSWORD_HASH")
+PASSWORD = os.getenv("PASSWORD")
+
+PASSWORD_HASH = hashlib.sha256(PASSWORD.encode()).hexdigest()
 
 def check_password():
     if "auth" not in st.session_state:

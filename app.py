@@ -22,13 +22,20 @@ init_db()
 # --------------------------------------------------
 
 def generate_stepup_emis(start_date, base_emi, years=10, step=0.10):
-    emis = []
+    emis = {}
     emi = base_emi
+    auto_gen = True if step == 0 else False
+
     for y in range(years):
         eff = date(start_date.year + y, 1, 1)
-        emis.append(EMIChange(eff, round(emi, -3)))
-        emi *= (1 + step)
+        emis[eff] = {
+            "amount": round(emi, -3),
+            "auto_gen": auto_gen
+        }
+        emi = emi * (1 + step) if emi < (base_emi*2) else int(base_emi*2)
+
     return emis
+
 
 # --------------------------------------------------
 # Session state
@@ -38,7 +45,8 @@ if "rates" not in st.session_state:
     st.session_state.rates = []
 
 if "emis" not in st.session_state:
-    st.session_state.emis = []
+    # dict[date] -> {"amount": float, "auto_gen": bool}
+    st.session_state.emis = {}
 
 if "prepays" not in st.session_state:
     st.session_state.prepays = []
@@ -48,6 +56,7 @@ if "prepays" not in st.session_state:
 # --------------------------------------------------
 
 principal = st.number_input("Principal", value=6_240_344, step=100_000)
+base_emi = st.number_input("Base EMI", value=51_000, step=100)
 start_date = st.date_input("Loan Start Date", value=date(2025, 7, 1))
 emi_day = 5
 
@@ -63,9 +72,11 @@ if not st.session_state.rates:
 if not st.session_state.emis:
     st.session_state.emis = generate_stepup_emis(
         start_date=start_date,
-        base_emi=51_000,
-        years=10
+        base_emi=base_emi,
+        years=10,
+        step=0
     )
+
 
 # --------------------------------------------------
 # Interest rate editor
@@ -101,17 +112,40 @@ with st.form("add_emi"):
     eff_date = st.date_input("Effective From", value=start_date)
     add_emi = st.form_submit_button("Add EMI Change")
 
+with st.form("generate_emi"):
+    emi_amt_step = st.number_input("EMI Amount", step=100)
+    step_up_percent = st.number_input("Step Up", step=0.1)
+    eff_date = st.date_input("Effective From", value=start_date)
+    generate_emi = st.form_submit_button("Generate EMI Rates")
+
 if add_emi:
-    st.session_state.emis.append(EMIChange(eff_date, emi_amt))
+    st.session_state.emis[eff_date] = {
+        "amount": emi_amt,
+        "auto_gen": False
+    }
+    print(st.session_state.emis)
     st.rerun()
 
-for i, e in enumerate(sorted(st.session_state.emis, key=lambda x: x.effective_date)):
-    c1, c2, c3 = st.columns([3, 3, 1])
-    c1.write(e.effective_date)
-    c2.write(f"{e.amount:,.0f}")
-    if c3.button("❌", key=f"del_emi_{i}") and len(st.session_state.emis) > 1:
-        st.session_state.emis.pop(i)
-        st.rerun()
+if generate_emi:
+    generated = generate_stepup_emis(start_date, emi_amt_step, 10, step_up_percent)
+    for d, v in generated.items():
+        # manual overrides win
+        if d not in st.session_state.emis or st.session_state.emis[d]["auto_gen"]:
+            st.session_state.emis[d] = v
+    print(st.session_state.emis)
+    st.rerun()
+
+
+for eff_date in sorted(st.session_state.emis):
+    e = st.session_state.emis[eff_date]
+    if not e["auto_gen"]:
+        c1, c2, c3 = st.columns([3, 3, 1])
+        c1.write(eff_date)
+        c2.write(f"{e['amount']:,.0f}")
+        if c3.button("❌", key=f"del_emi_{eff_date}") and len(st.session_state.emis) > 1:
+            del st.session_state.emis[eff_date]
+            st.rerun()
+
 
 # --------------------------------------------------
 # Prepayments
@@ -136,40 +170,54 @@ for i, p in enumerate(sorted(st.session_state.prepays, key=lambda x: x.date)):
         st.session_state.prepays.pop(i)
         st.rerun()
 
-# --------------------------------------------------
-# Persistence (password-gated)
-# --------------------------------------------------
-
-st.subheader("Persistence")
-
-can_edit = check_password()
-scenario_name = st.text_input("Scenario name")
-
-col1, col2 = st.columns(2)
-
-if col1.button("💾 Save"):
-    if not can_edit:
-        st.warning("Enter password to save.")
-    elif scenario_name:
-        payload = {
-            "principal": principal,
-            "start_date": start_date.isoformat(),
-            "rates": [{"date": r.effective_date.isoformat(), "rate": r.rate} for r in st.session_state.rates],
-            "emis": [{"date": e.effective_date.isoformat(), "amount": e.amount} for e in st.session_state.emis],
-            "prepays": [{"date": p.date.isoformat(), "amount": p.amount} for p in st.session_state.prepays],
-        }
-        save_scenario(scenario_name, payload)
-        st.success("Saved")
-
-available = list_scenarios()
-selected = col2.selectbox("Load scenario", [""] + available)
-
-if selected:
-    data = load_scenario(selected)
-    st.session_state.rates = [RateChange(date.fromisoformat(r["date"]), r["rate"]) for r in data["rates"]]
-    st.session_state.emis = [EMIChange(date.fromisoformat(e["date"]), e["amount"]) for e in data["emis"]]
-    st.session_state.prepays = [Prepayment(date.fromisoformat(p["date"]), p["amount"]) for p in data["prepays"]]
-    st.rerun()
+# # --------------------------------------------------
+# # Persistence (password-gated)
+# # --------------------------------------------------
+#
+# st.subheader("Persistence")
+#
+# can_edit = check_password()
+# scenario_name = st.text_input("Scenario name")
+#
+# col1, col2 = st.columns(2)
+#
+# if col1.button("💾 Save"):
+#     if not can_edit:
+#         st.warning("Enter password to save.")
+#     elif scenario_name:
+#         payload = {
+#             "principal": principal,
+#             "start_date": start_date.isoformat(),
+#             "rates": [{"date": r.effective_date.isoformat(), "rate": r.rate} for r in st.session_state.rates],
+#             "emis": [
+#                         {
+#                             "date": d.isoformat(),
+#                             "amount": v["amount"],
+#                             "auto_gen": v["auto_gen"]
+#                         }
+#                         for d, v in st.session_state.emis.items()
+#                     ],
+#             "prepays": [{"date": p.date.isoformat(), "amount": p.amount} for p in st.session_state.prepays],
+#         }
+#         save_scenario(scenario_name, payload)
+#         st.success("Saved")
+#
+# available = list_scenarios()
+# selected = col2.selectbox("Load scenario", [""] + available)
+#
+# if selected:
+#     data = load_scenario(selected)
+#     st.session_state.rates = [RateChange(date.fromisoformat(r["date"]), r["rate"]) for r in data["rates"]]
+#     st.session_state.emis =  {
+#                                 date.fromisoformat(e["date"]): {
+#                                     "amount": e["amount"],
+#                                     "auto_gen": e.get("auto_gen", False)
+#                                 }
+#                                 for e in data["emis"]
+#                             }
+#
+#     st.session_state.prepays = [Prepayment(date.fromisoformat(p["date"]), p["amount"]) for p in data["prepays"]]
+#     st.rerun()
 
 # --------------------------------------------------
 # Compute & output
@@ -178,7 +226,10 @@ if selected:
 df = compute_schedule(
     loan=loan,
     rate_changes=sorted(st.session_state.rates, key=lambda r: r.effective_date),
-    emi_changes=sorted(st.session_state.emis, key=lambda e: e.effective_date),
+    emi_changes=sorted(
+                    [EMIChange(d, v["amount"], v["auto_gen"]) for d, v in st.session_state.emis.items()],
+                    key=lambda e: e.effective_date
+                ),
     prepayments=sorted(st.session_state.prepays, key=lambda p: p.date),
 )
 
@@ -188,9 +239,15 @@ st.dataframe(df, width='stretch')
 baseline_df = compute_schedule(
     loan=loan,
     rate_changes=sorted(st.session_state.rates, key=lambda r: r.effective_date),
-    emi_changes=generate_stepup_emis(start_date=start_date,
+    emi_changes=[
+    EMIChange(d, v["amount"], v["auto_gen"])
+    for d, v in generate_stepup_emis(
+        start_date=start_date,
         base_emi=51_000,
-        years=10,step=0),#sorted(st.session_state.emis, key=lambda e: e.effective_date),
+        years=10,
+        step=0
+    ).items()
+],
     prepayments=[],  # no prepayments
 )
 

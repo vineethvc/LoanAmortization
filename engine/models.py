@@ -10,6 +10,7 @@ class RateChange:
 class EMIChange:
     effective_date: date
     amount: float
+    auto_gen: bool
 
 @dataclass
 class Prepayment:
