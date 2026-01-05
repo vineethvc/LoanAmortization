@@ -123,7 +123,6 @@ if add_emi:
         "amount": emi_amt,
         "auto_gen": False
     }
-    print(st.session_state.emis)
     st.rerun()
 
 if generate_emi:
@@ -132,7 +131,6 @@ if generate_emi:
         # manual overrides win
         if d not in st.session_state.emis or st.session_state.emis[d]["auto_gen"]:
             st.session_state.emis[d] = v
-    print(st.session_state.emis)
     st.rerun()
 
 
@@ -146,6 +144,23 @@ for eff_date in sorted(st.session_state.emis):
             del st.session_state.emis[eff_date]
             st.rerun()
 
+st.markdown("### EMI Utilities")
+
+if st.button("🔁 Reset Auto-Generated EMIs"):
+    regenerated = generate_stepup_emis(
+        start_date=start_date,
+        base_emi=base_emi,
+        years=10,
+        step=0
+    )
+
+    for d, v in regenerated.items():
+        # overwrite only auto-generated entries
+        if d not in st.session_state.emis or not st.session_state.emis[d]["auto_gen"]:
+            st.session_state.emis[d] = v
+
+    st.success("Auto-generated EMIs reset. Manual overrides preserved.")
+    st.rerun()
 
 # --------------------------------------------------
 # Prepayments
