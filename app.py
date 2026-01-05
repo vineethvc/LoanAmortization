@@ -109,7 +109,7 @@ st.subheader("EMI Changes (Overrides Allowed)")
 
 with st.form("add_emi"):
     emi_amt = st.number_input("EMI Amount", step=100)
-    eff_date = st.date_input("Effective From", value=start_date)
+    eff_date_add = st.date_input("Effective From", value=start_date)
     add_emi = st.form_submit_button("Add EMI Change")
 
 with st.form("generate_emi"):
@@ -119,7 +119,8 @@ with st.form("generate_emi"):
     generate_emi = st.form_submit_button("Generate EMI Rates")
 
 if add_emi:
-    st.session_state.emis[eff_date] = {
+    print(f"Saving emi {emi_amt} for {eff_date_add}")
+    st.session_state.emis[eff_date_add] = {
         "amount": emi_amt,
         "auto_gen": False
     }
