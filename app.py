@@ -185,54 +185,54 @@ for i, p in enumerate(sorted(st.session_state.prepays, key=lambda x: x.date)):
         st.session_state.prepays.pop(i)
         st.rerun()
 
-# # --------------------------------------------------
-# # Persistence (password-gated)
-# # --------------------------------------------------
-#
-# st.subheader("Persistence")
-#
-# can_edit = check_password()
-# scenario_name = st.text_input("Scenario name")
-#
-# col1, col2 = st.columns(2)
-#
-# if col1.button("💾 Save"):
-#     if not can_edit:
-#         st.warning("Enter password to save.")
-#     elif scenario_name:
-#         payload = {
-#             "principal": principal,
-#             "start_date": start_date.isoformat(),
-#             "rates": [{"date": r.effective_date.isoformat(), "rate": r.rate} for r in st.session_state.rates],
-#             "emis": [
-#                         {
-#                             "date": d.isoformat(),
-#                             "amount": v["amount"],
-#                             "auto_gen": v["auto_gen"]
-#                         }
-#                         for d, v in st.session_state.emis.items()
-#                     ],
-#             "prepays": [{"date": p.date.isoformat(), "amount": p.amount} for p in st.session_state.prepays],
-#         }
-#         save_scenario(scenario_name, payload)
-#         st.success("Saved")
-#
-# available = list_scenarios()
-# selected = col2.selectbox("Load scenario", [""] + available)
-#
-# if selected:
-#     data = load_scenario(selected)
-#     st.session_state.rates = [RateChange(date.fromisoformat(r["date"]), r["rate"]) for r in data["rates"]]
-#     st.session_state.emis =  {
-#                                 date.fromisoformat(e["date"]): {
-#                                     "amount": e["amount"],
-#                                     "auto_gen": e.get("auto_gen", False)
-#                                 }
-#                                 for e in data["emis"]
-#                             }
-#
-#     st.session_state.prepays = [Prepayment(date.fromisoformat(p["date"]), p["amount"]) for p in data["prepays"]]
-#     st.rerun()
+# --------------------------------------------------
+# Persistence (password-gated)
+# --------------------------------------------------
+
+st.subheader("Persistence")
+
+can_edit = check_password()
+scenario_name = st.text_input("Scenario name")
+
+col1, col2 = st.columns(2)
+
+if col1.button("💾 Save"):
+    if not can_edit:
+        st.warning("Enter password to save.")
+    elif scenario_name:
+        payload = {
+            "principal": principal,
+            "start_date": start_date.isoformat(),
+            "rates": [{"date": r.effective_date.isoformat(), "rate": r.rate} for r in st.session_state.rates],
+            "emis": [
+                        {
+                            "date": d.isoformat(),
+                            "amount": v["amount"],
+                            "auto_gen": v["auto_gen"]
+                        }
+                        for d, v in st.session_state.emis.items()
+                    ],
+            "prepays": [{"date": p.date.isoformat(), "amount": p.amount} for p in st.session_state.prepays],
+        }
+        save_scenario(scenario_name, payload)
+        st.success("Saved")
+
+available = list_scenarios()
+selected = col2.selectbox("Load scenario", [""] + available)
+
+if selected:
+    data = load_scenario(selected)
+    st.session_state.rates = [RateChange(date.fromisoformat(r["date"]), r["rate"]) for r in data["rates"]]
+    st.session_state.emis =  {
+                                date.fromisoformat(e["date"]): {
+                                    "amount": e["amount"],
+                                    "auto_gen": e.get("auto_gen", False)
+                                }
+                                for e in data["emis"]
+                            }
+
+    st.session_state.prepays = [Prepayment(date.fromisoformat(p["date"]), p["amount"]) for p in data["prepays"]]
+    st.rerun()
 
 # --------------------------------------------------
 # Compute & output
