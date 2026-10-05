@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pandas as pd
 from datetime import date
 from calendar import monthrange
@@ -75,10 +77,10 @@ def compute_schedule(
         rate = rate_on_date(month_start, rate_changes)
         emi = emi_on_date(month_start, emi_changes)
 
-        prepay = next(
-            (p for p in prepayments if p.date.year == year and p.date.month == month),
-            None
-        )
+        month_prepayments = [
+            p for p in prepayments if p.date.year == year and p.date.month == month
+        ]
+        prepayment_total = sum(p.amount for p in month_prepayments)
 
         rate_segments = rate_segments_for_month(
             month_start,
@@ -91,14 +93,13 @@ def compute_schedule(
             emi=emi,
             rate_segments=rate_segments,
             days_in_month=days_in_month,
-            prepay_day=prepay.date.day if prepay else None,
-            prepay_amount=prepay.amount if prepay else 0,
+            prepayments=month_prepayments,
             emi_day=loan.emi_day,
         )
 
         principal_paid = max(emi - interest, 0)
         outstanding = max(
-            outstanding - principal_paid - (prepay.amount if prepay else 0),
+            outstanding - principal_paid - prepayment_total,
             0
         )
 
@@ -108,7 +109,7 @@ def compute_schedule(
             "EMI": emi,
             "Interest": round(interest, 2),
             "Principal Paid": round(principal_paid, 2),
-            "Prepayment": prepay.amount if prepay else 0,
+            "Prepayment": prepayment_total,
             "Outstanding": round(outstanding, 2),
         })
 
