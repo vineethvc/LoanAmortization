@@ -369,8 +369,14 @@ df = compute_schedule(
     prepayments=sorted(st.session_state.prepays, key=lambda p: p.date),
 )
 
-st.subheader("Amortization Schedule")
-st.dataframe(df, width='stretch')
+st.subheader("Repayment Schedule")
+for year, yearly_df in df.groupby(df["Month"].map(lambda month: month.year), sort=True):
+    closing_balance = yearly_df.iloc[-1]["Outstanding"]
+    with st.expander(
+        f"{year} - {len(yearly_df)} months - closing balance ₹{closing_balance:,.0f}",
+        expanded=False,
+    ):
+        st.dataframe(yearly_df.reset_index(drop=True), width="stretch", hide_index=True)
 
 baseline_df = compute_schedule(
     loan=loan,
