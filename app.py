@@ -41,6 +41,7 @@ def apply_scenario(data, name):
         for item in data["prepays"]
     ]
     st.session_state.loaded_scenario = name
+    st.session_state.scenario_name = name
 
 
 def load_selected_scenario():
@@ -61,6 +62,7 @@ if "startup_loaded" not in st.session_state:
         st.session_state.principal = 5000000
         st.session_state.base_emi = 45000
         st.session_state.start_date = date(2025, 7, 1)
+        st.session_state.scenario_name = DEFAULT_SCENARIO
 # --------------------------------------------------
 # Helpers
 # --------------------------------------------------
@@ -153,9 +155,9 @@ with st.form("add_rate"):
     c1, c2, c3 = st.columns([2, 2, 1])
 
     with c1:
-        rate = st.number_input("Rate (%)", step=0.1, value=7.6, format="%.2f")
+        rate = st.number_input("Rate (%)", step=0.1, value=7.6, format="%.2f", key="rate_value")
     with c2:
-        eff_date = st.date_input("Effective From", value=start_date)
+        eff_date = st.date_input("Effective From", value=date.today(), key="rate_date")
     with c3:
         st.write("")
         add_rate = st.form_submit_button("Add Rate")
@@ -164,7 +166,9 @@ if add_rate:
     st.session_state.rates.append(RateChange(eff_date, rate))
     st.rerun()
 
-for i, r in enumerate(sorted(st.session_state.rates, key=lambda x: x.effective_date)):
+for i, r in sorted(
+    enumerate(st.session_state.rates), key=lambda entry: entry[1].effective_date
+):
     c1, c2, c3 = st.columns([3, 3, 1])
     c1.write(r.effective_date)
     c2.write(f"{r.rate:.2f}%")
@@ -288,13 +292,19 @@ can_edit = check_password()
 
 c1_save, c2_save = st.columns([2, 2])
 
+if "scenario_name" not in st.session_state:
+    st.session_state.scenario_name = st.session_state.get("loaded_scenario", DEFAULT_SCENARIO)
+
 with c1_save:
-    scenario_name = st.text_input("Scenario name")
+    scenario_name = st.text_input("Scenario name", key="scenario_name").strip()
+    st.caption("Save as current_save to load this plan automatically next time.")
 
     if st.button("💾 Save"):
         if not can_edit:
             st.warning("Enter password to save.")
-        elif scenario_name:
+        elif not scenario_name:
+            st.error("Enter a scenario name before saving.")
+        else:
             payload = {
                 "principal": principal,
                 "base_emi": base_emi,
@@ -317,7 +327,8 @@ with c1_save:
                 ],
             }
             save_scenario(scenario_name, payload)
-            st.success("Saved")
+            st.session_state.loaded_scenario = scenario_name
+            st.success(f"Saved as {scenario_name}.")
 
 with c2_save:
     available = list_scenarios()

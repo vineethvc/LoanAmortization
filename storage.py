@@ -2,7 +2,7 @@ import sqlite3
 import json
 from pathlib import Path
 
-DB_PATH = Path("data/loan.db")
+DB_PATH = Path(__file__).resolve().parent / "data" / "loan.db"
 
 def get_conn():
     DB_PATH.parent.mkdir(exist_ok=True)
