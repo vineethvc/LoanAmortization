@@ -1,8 +1,10 @@
 import streamlit as st
 from datetime import date
+import pandas as pd
 
 from engine.models import Loan, RateChange, EMIChange, Prepayment
 from engine.schedule import compute_schedule
+from engine.scenarios import schedule_from_payload
 #
 from auth import check_password
 from storage import init_db, save_scenario, load_scenario, list_scenarios
@@ -19,43 +21,42 @@ init_db()
 
 DEFAULT_SCENARIO = "current_save"
 
+def apply_scenario(data, name):
+    st.session_state.principal = data["principal"]
+    st.session_state.base_emi = data["base_emi"]
+    st.session_state.start_date = date.fromisoformat(data["start_date"])
+    st.session_state.rates = [
+        RateChange(date.fromisoformat(item["date"]), item["rate"])
+        for item in data["rates"]
+    ]
+    st.session_state.emis = {
+        date.fromisoformat(item["date"]): {
+            "amount": item["amount"],
+            "auto_gen": item.get("auto_gen", False),
+        }
+        for item in data["emis"]
+    }
+    st.session_state.prepays = [
+        Prepayment(date.fromisoformat(item["date"]), item["amount"])
+        for item in data["prepays"]
+    ]
+    st.session_state.loaded_scenario = name
+
+
+def load_selected_scenario():
+    name = st.session_state.scenario_to_load
+    if name:
+        data = load_scenario(name)
+        if data:
+            apply_scenario(data, name)
+
+
 if "startup_loaded" not in st.session_state:
     st.session_state.startup_loaded = True
 
     available = list_scenarios()
     if DEFAULT_SCENARIO in available:
-        data = load_scenario(DEFAULT_SCENARIO)
-
-        # restore loan basics
-        st.session_state.principal = data.get("principal")
-        st.session_state.base_emi = data.get("base_emi")
-        st.session_state.start_date = date.fromisoformat(data["start_date"])
-
-        # restore rates
-        st.session_state.rates = [
-            RateChange(date.fromisoformat(r["date"]), r["rate"])
-            for r in data["rates"]
-        ]
-
-        # restore EMIs (dict form)
-        st.session_state.emis = {
-            date.fromisoformat(e["date"]): {
-                "amount": e["amount"],
-                "auto_gen": e.get("auto_gen", False)
-            }
-            for e in data["emis"]
-        }
-
-        # restore prepayments
-        st.session_state.prepays = [
-            Prepayment(date.fromisoformat(p["date"]), p["amount"])
-            for p in data["prepays"]
-        ]
-
-        # optional: remember what is loaded
-        st.session_state.loaded_scenario = DEFAULT_SCENARIO
-
-        st.rerun()
+        apply_scenario(load_scenario(DEFAULT_SCENARIO), DEFAULT_SCENARIO)
     else:
         st.session_state.principal = 5000000
         st.session_state.base_emi = 45000
@@ -105,7 +106,6 @@ c1, c2, c3 = st.columns(3)
 with c1:
     principal = st.number_input(
         "Principal",
-        value=st.session_state.get("principal", 6_240_344),
         step=100_000,
         key="principal"
     )
@@ -113,7 +113,6 @@ with c1:
 with c2:
     base_emi = st.number_input(
         "Base EMI",
-        value=st.session_state.get("base_emi", 51_000),
         step=100,
         key="base_emi"
     )
@@ -121,7 +120,6 @@ with c2:
 with c3:
     start_date = st.date_input(
         "Loan Start Date",
-        value=st.session_state.get("start_date", date(2025, 7, 1)),
         key="start_date"
     )
 
@@ -323,36 +321,8 @@ with c1_save:
 
 with c2_save:
     available = list_scenarios()
-    selected = st.selectbox("Load scenario", [""] + available)
-
-    if selected:
-        data = load_scenario(selected)
-
-        # 🔑 restore loan basics FIRST
-        st.session_state.principal = data.get("principal")
-        st.session_state.base_emi = data.get("base_emi")
-        st.session_state.start_date = date.fromisoformat(data["start_date"])
-
-        # restore events
-        st.session_state.rates = [
-            RateChange(date.fromisoformat(r["date"]), r["rate"])
-            for r in data["rates"]
-        ]
-
-        st.session_state.emis = {
-            date.fromisoformat(e["date"]): {
-                "amount": e["amount"],
-                "auto_gen": e.get("auto_gen", False)
-            }
-            for e in data["emis"]
-        }
-
-        st.session_state.prepays = [
-            Prepayment(date.fromisoformat(p["date"]), p["amount"])
-            for p in data["prepays"]
-        ]
-
-        st.rerun()
+    selected = st.selectbox("Saved scenario", [""] + available, key="scenario_to_load")
+    st.button("Load scenario", on_click=load_selected_scenario, disabled=not selected)
 
 
 # --------------------------------------------------
@@ -376,7 +346,15 @@ for year, yearly_df in df.groupby(df["Month"].map(lambda month: month.year), sor
         f"{year} - {len(yearly_df)} months - closing balance ₹{closing_balance:,.0f}",
         expanded=False,
     ):
-        st.dataframe(yearly_df.reset_index(drop=True), width="stretch", hide_index=True)
+        st.dataframe(
+            yearly_df.reset_index(drop=True),
+            width="stretch",
+            height=40 * (len(yearly_df) + 1) + 16,
+            hide_index=True,
+            column_config={
+                "Outstanding": st.column_config.NumberColumn(width="medium"),
+            },
+        )
 
 baseline_df = compute_schedule(
     loan=loan,
@@ -388,49 +366,46 @@ baseline_df = compute_schedule(
 )
 
 
-comparison_df = (
-    baseline_df[["Month", "Outstanding"]]
-    .rename(columns={"Outstanding": "Baseline Outstanding"})
-    .merge(
-        df[["Month", "Outstanding"]]
-        .rename(columns={"Outstanding": "Scenario Outstanding"}),
-        on="Month",
-        how="outer"
-    )
-    .set_index("Month")
+st.subheader("Balance Comparison")
+comparison_names = st.multiselect(
+    "Compare saved scenarios",
+    available,
+    default=[name for name in available if name != st.session_state.get("loaded_scenario")],
 )
 
 
-comparison_df["Scenario Outstanding"] = (
-    comparison_df["Scenario Outstanding"]
-    .fillna(0)
-)
+def chart_rows(schedule, plan_name):
+    return schedule[["Month", "Outstanding"]].assign(Plan=plan_name)
 
-chart_df = comparison_df.reset_index().melt(
-    id_vars="Month",
-    value_vars=["Baseline Outstanding", "Scenario Outstanding"],
-    var_name="Type",
-    value_name="Outstanding"
-)
+
+chart_frames = [
+    chart_rows(baseline_df, "Fixed EMI baseline"),
+    chart_rows(df, "Current editor"),
+]
+for name in comparison_names:
+    payload = load_scenario(name)
+    if payload:
+        chart_frames.append(chart_rows(schedule_from_payload(payload), name))
+
+chart_df = pd.concat(chart_frames, ignore_index=True)
 
 chart = alt.Chart(chart_df).mark_line(strokeWidth=3).encode(
-    x="Month:T",
-    y="Outstanding:Q",
-    color=alt.Color(
-        "Type:N",
-        scale=alt.Scale(
-            domain=["Baseline Outstanding", "Scenario Outstanding"],
-            range=["#d62728", "#2ca02c"]  # red, green
-        ),
-        legend=alt.Legend(title="Schedule")
-    )
+    x=alt.X("Month:T", title="Month"),
+    y=alt.Y("Outstanding:Q", title="Outstanding (₹)"),
+    color=alt.Color("Plan:N", title="Plan"),
+    tooltip=[
+        alt.Tooltip("Month:T", title="Month", format="%b %Y"),
+        alt.Tooltip("Plan:N", title="Plan"),
+        alt.Tooltip("Outstanding:Q", title="Outstanding (₹)", format=",.0f"),
+    ],
 ).properties(
     width="container",
     height=400,
-    title="Outstanding Balance: Baseline vs Scenario"
+    title="Outstanding balance by plan"
 )
 
 st.altair_chart(chart, width='stretch')
+st.caption("Each saved plan starts on its own start date; the chart does not add zero balances before that date.")
 
 def impact_metrics(baseline_df, scenario_df):
     baseline_interest = baseline_df["Interest"].sum()
@@ -454,6 +429,7 @@ def impact_metrics(baseline_df, scenario_df):
 impact = impact_metrics(baseline_df, df)
 
 st.subheader("Impact Analysis")
+st.caption("Current editor compared with the fixed EMI baseline above.")
 
 c1, c2, c3 = st.columns(3)
 
